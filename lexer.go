@@ -1,80 +1,90 @@
 package mini_sql
 
 import (
-	"crypto/rand"
-	"errors"
 	"fmt"
-	"sort"
 	"strings"
-
-	"github.com/gofiber/fiber/v2/middleware/skip"
 )
 
-type location struct {
-	line uint
-	col  uint
+type Location struct {
+	Line uint
+	Col  uint
 }
 
-type keyword string
+type Keyword string
 
 const (
-	selectKeyword keyword = "select"
-	fromKeyword   keyword = "from"
-	asKeyword     keyword = "as"
-	tableKeyword  keyword = "table"
-	createKeyword keyword = "create"
-	insertKeyword keyword = "insert"
-	whereKeyword  keyword = "where"
-	intoKeyword   keyword = "into"
-	valuesKeyword keyword = "values"
-	intKeyword    keyword = "int"
-	textKeyword   keyword = "text"
+	SelectKeyword     Keyword = "select"
+	FromKeyword       Keyword = "from"
+	AsKeyword         Keyword = "as"
+	TableKeyword      Keyword = "table"
+	CreateKeyword     Keyword = "create"
+	DropKeyword       Keyword = "drop"
+	InsertKeyword     Keyword = "insert"
+	IntoKeyword       Keyword = "into"
+	ValuesKeyword     Keyword = "values"
+	IntKeyword        Keyword = "int"
+	TextKeyword       Keyword = "text"
+	BoolKeyword       Keyword = "boolean"
+	WhereKeyword      Keyword = "where"
+	AndKeyword        Keyword = "and"
+	OrKeyword         Keyword = "or"
+	TrueKeyword       Keyword = "true"
+	FalseKeyword      Keyword = "false"
+	UniqueKeyword     Keyword = "unique"
+	IndexKeyword      Keyword = "index"
+	OnKeyword         Keyword = "on"
+	PrimarykeyKeyword Keyword = "primary key"
+	NullKeyword       Keyword = "null"
+	LimitKeyword      Keyword = "limit"
+	OffsetKeyword     Keyword = "offset"
 )
 
 type symbol string
 
 const (
-	semicolonSymbol  symbol = ";"
-	asteriskSymbol   symbol = "*"
-	commaSymbol      symbol = ","
-	leftparenSymbol  symbol = "("
-	rightparenSymbol symbol = ")"
+	SemicolonSymbol  symbol = ";"
+	AsteriskSymbol   symbol = "*"
+	CommaSymbol      symbol = ","
+	LeftparenSymbol  symbol = "("
+	RightparenSymbol symbol = ")"
 )
 
 type tokenKind uint
 
 const (
-	keywordKind tokenKind = iota
-	symbolKind
-	identifierKind
-	stringKind
-	numericKind
+	KeywordKind tokenKind = iota
+	SymbolKind
+	IdentifierKind
+	StringKind
+	NumericKind
+	BoolKind
+	NullKind
 )
 
-type token struct {
-	value string
-	kind  tokenKind
-	loc   location
+type Token struct {
+	Value string
+	Kind  tokenKind
+	Loc   Location
 }
 
 type cursor struct {
 	pointer uint
-	loc     location
+	loc     Location
 }
 
-func (t *token) equals(other *token) bool {
-	return t.value == other.value && t.kind == other.kind
+func (t *Token) equals(other *Token) bool {
+	return t.Value == other.Value && t.Kind == other.Kind
 }
 
-type lexer func(string, cursor) (*token, cursor, bool)
+type lexer func(string, cursor) (*Token, cursor, bool)
 
-func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
+func lexNumeric(source string, ic cursor) (*Token, cursor, bool) {
 	cur := ic
 	periodFound := false    // 小数点
 	expMarkerFound := false // 指数
 	for ; cur.pointer < uint(len(source)); cur.pointer++ {
 		c := source[cur.pointer]
-		cur.loc.col++
+		cur.loc.Col++
 		isDigit := c >= '0' && c <= '9'
 		isPeriod := c == '.'
 		isExpMarker := c == 'e'
@@ -101,11 +111,9 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 				return nil, ic, false
 			}
 
-			// No periods allowed after expMarker
 			periodFound = true
 			expMarkerFound = true
 
-			// expMarker must be followed by digits
 			if cur.pointer == uint(len(source)-1) {
 				return nil, ic, false
 			}
@@ -113,7 +121,7 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 			cNext := source[cur.pointer+1]
 			if cNext == '-' || cNext == '+' {
 				cur.pointer++
-				cur.loc.col++
+				cur.loc.Col++
 			}
 
 			continue
@@ -128,14 +136,14 @@ func lexNumeric(source string, ic cursor) (*token, cursor, bool) {
 		return nil, ic, false
 	}
 
-	return &token{
-		value: source[ic.pointer:cur.pointer],
-		loc:   ic.loc,
-		kind:  numericKind,
+	return &Token{
+		Value: source[ic.pointer:cur.pointer],
+		Loc:   ic.loc,
+		Kind:  NumericKind,
 	}, cur, true
 }
 
-func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cursor, bool) {
+func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*Token, cursor, bool) {
 	cur := ic
 
 	if len(source[cur.pointer:]) == 0 {
@@ -146,7 +154,7 @@ func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cu
 		return nil, ic, false
 	}
 
-	cur.loc.col++
+	cur.loc.Col++
 	cur.pointer++
 
 	var value []byte
@@ -156,38 +164,38 @@ func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*token, cu
 
 		if c == delimiter {
 			if cur.pointer+1 >= uint(len(source)) || source[cur.pointer+1] != delimiter {
-				return &token{
-					value: string(value),
-					loc:   ic.loc,
-					kind:  stringKind,
+				return &Token{
+					Value: string(value),
+					Loc:   ic.loc,
+					Kind:  StringKind,
 				}, cur, true
 			} else { // 連続するデリミタはエスケープとみなす
 				value = append(value, delimiter)
 				cur.pointer++
-				cur.loc.col++
+				cur.loc.Col++
 			}
 		}
 		value = append(value, c)
-		cur.loc.col++
+		cur.loc.Col++
 	}
 	return nil, ic, false
 }
 
-func lexString(source string, ic cursor) (*token, cursor, bool) {
+func lexString(source string, ic cursor) (*Token, cursor, bool) {
 	return lexCharacterDelimited(source, ic, '\'')
 }
 
-func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
+func lexSymbol(source string, ic cursor) (*Token, cursor, bool) {
 	c := source[ic.pointer]
 	cur := ic
 
 	cur.pointer++
-	cur.loc.col++
+	cur.loc.Col++
 
 	switch c {
 	case '\n':
-		cur.loc.line++
-		cur.loc.col = 0
+		cur.loc.Line++
+		cur.loc.Col = 0
 		fallthrough
 	case '\t':
 		fallthrough
@@ -196,11 +204,11 @@ func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 	}
 
 	symbols := []symbol{
-		commaSymbol,
-		leftparenSymbol,
-		rightparenSymbol,
-		semicolonSymbol,
-		asteriskSymbol,
+		CommaSymbol,
+		LeftparenSymbol,
+		RightparenSymbol,
+		SemicolonSymbol,
+		AsteriskSymbol,
 	}
 
 	var options []string
@@ -214,27 +222,27 @@ func lexSymbol(source string, ic cursor) (*token, cursor, bool) {
 	}
 
 	cur.pointer = ic.pointer + uint(len(match))
-	cur.loc.col = ic.loc.col + uint(len(match))
+	cur.loc.Col = ic.loc.Col + uint(len(match))
 
-	return &token{
-		value: match,
-		loc:   ic.loc,
-		kind:  symbolKind,
+	return &Token{
+		Value: match,
+		Loc:   ic.loc,
+		Kind:  SymbolKind,
 	}, cur, true
 }
 
-func lexKeyword(source string, ic cursor) (*token, cursor, bool) {
+func lexKeyword(source string, ic cursor) (*Token, cursor, bool) {
 	cur := ic
-	keywords := []keyword{
-		selectKeyword,
-		insertKeyword,
-		valuesKeyword,
-		tableKeyword,
-		createKeyword,
-		whereKeyword,
-		fromKeyword,
-		intoKeyword,
-		textKeyword,
+	keywords := []Keyword{
+		SelectKeyword,
+		InsertKeyword,
+		ValuesKeyword,
+		TableKeyword,
+		CreateKeyword,
+		WhereKeyword,
+		FromKeyword,
+		IntoKeyword,
+		TextKeyword,
 	}
 	var options []string
 
@@ -248,16 +256,67 @@ func lexKeyword(source string, ic cursor) (*token, cursor, bool) {
 	}
 
 	cur.pointer = ic.pointer + uint(len(match))
-	cur.loc.col = ic.loc.col + uint(len(match))
+	cur.loc.Col = ic.loc.Col + uint(len(match))
 
-	return &token{
-		value: match,
-		kind:  kind,
-		loc:   ic.loc,
+	Kind := KeywordKind
+
+	if match == string(TrueKeyword) || match == string(FalseKeyword) {
+		Kind = BoolKind
+	}
+
+	if match == string(NullKeyword) {
+		Kind = NullKind
+	}
+	return &Token{
+		Value: match,
+		Kind:  Kind,
+		Loc:   ic.loc,
 	}, cur, true
 }
 
-func longestMatch(source string, ic cursor, options []string) {
+func lexIdentifier(source string, ic cursor) (*Token, cursor, bool) {
+	if token, newCursor, ok := lexCharacterDelimited(source, ic, '"'); ok {
+		return token, newCursor, true
+	}
+
+	cur := ic
+
+	c := source[cur.pointer]
+
+	isAlphabetical := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+
+	if !isAlphabetical {
+		return nil, ic, false
+	}
+	cur.pointer++
+	cur.loc.Col++
+
+	value := []byte{c}
+
+	for ; cur.pointer < uint(len(source)); cur.pointer++ {
+		c = source[cur.pointer]
+		isAlphabetical := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+		isNumeric := c >= '0' && c <= '9'
+		if isAlphabetical || isNumeric || c == '$' || c == '_' {
+			value = append(value, c)
+			cur.loc.Col++
+			continue
+		}
+		break
+	}
+
+	if len(value) == 0 {
+		return nil, ic, false
+	}
+
+	return &Token{
+		Value: strings.ToLower(string(value)),
+		Loc:   ic.loc,
+		Kind:  IdentifierKind,
+	}, cur, true
+}
+
+func longestMatch(source string, ic cursor, options []string) string {
 	var value []byte
 	var skipList []int
 	var match string
@@ -265,7 +324,7 @@ func longestMatch(source string, ic cursor, options []string) {
 	cur := ic
 
 	for cur.pointer < uint(len(source)) {
-		value = append(value, strings.ToLower(strings(source[cur.pointer]))...)
+		value = append(value, strings.ToLower(string(source[cur.pointer]))...)
 		cur.pointer++
 	match:
 		for i, option := range options {
@@ -282,14 +341,21 @@ func longestMatch(source string, ic cursor, options []string) {
 				}
 				continue
 			}
-
+			sharesPrefix := string(value) == option[:cur.pointer-ic.pointer]
+			tooLong := len(value) > len(option)
+			if tooLong || !sharesPrefix {
+				skipList = append(skipList, i)
+			}
 		}
-
+		if len(skipList) == len(options) {
+			break
+		}
 	}
+	return match
 }
 
-func lex(source string) ([]*token, error) {
-	tokens := []*token{}
+func lex(source string) ([]*Token, error) {
+	tokens := []*Token{}
 	cur := cursor{}
 
 lex:
@@ -306,9 +372,9 @@ lex:
 		}
 		hint := ""
 		if len(tokens) > 0 {
-			hint = "after" + tokens[len(tokens)-1].value
+			hint = "after" + tokens[len(tokens)-1].Value
 		}
-		return nil, fmt.Errorf("Unable to lex token%s, at %d:%d", hint, cur.loc.line, cur.loc.col)
+		return nil, fmt.Errorf("Unable to lex token%s, at %d:%d", hint, cur.loc.Line, cur.loc.Col)
 	}
 	return tokens, nil
 }
