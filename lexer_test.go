@@ -344,6 +344,11 @@ func TestLex(t *testing.T) {
 					Kind:  StringKind,
 				},
 				{
+					Loc:   Location{Col: 13, Line: 0},
+					Value: string(ConcatSymbol),
+					Kind:  SymbolKind,
+				},
+				{
 					Loc:   Location{Col: 16, Line: 0},
 					Value: "bar",
 					Kind:  StringKind,

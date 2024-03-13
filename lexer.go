@@ -39,14 +39,16 @@ const (
 	OffsetKeyword     Keyword = "offset"
 )
 
-type symbol string
+type Symbol string
 
 const (
-	SemicolonSymbol  symbol = ";"
-	AsteriskSymbol   symbol = "*"
-	CommaSymbol      symbol = ","
-	LeftparenSymbol  symbol = "("
-	RightparenSymbol symbol = ")"
+	SemicolonSymbol  Symbol = ";"
+	AsteriskSymbol   Symbol = "*"
+	CommaSymbol      Symbol = ","
+	EqSymbol         Symbol = "="
+	ConcatSymbol     Symbol = "||"
+	LeftparenSymbol  Symbol = "("
+	RightparenSymbol Symbol = ")"
 )
 
 type tokenKind uint
@@ -164,6 +166,8 @@ func lexCharacterDelimited(source string, ic cursor, delimiter byte) (*Token, cu
 
 		if c == delimiter {
 			if cur.pointer+1 >= uint(len(source)) || source[cur.pointer+1] != delimiter {
+				cur.pointer++
+				cur.loc.Col++
 				return &Token{
 					Value: string(value),
 					Loc:   ic.loc,
@@ -203,12 +207,14 @@ func lexSymbol(source string, ic cursor) (*Token, cursor, bool) {
 		return nil, cur, true
 	}
 
-	symbols := []symbol{
-		CommaSymbol,
-		LeftparenSymbol,
-		RightparenSymbol,
+	symbols := []Symbol{
 		SemicolonSymbol,
 		AsteriskSymbol,
+		CommaSymbol,
+		EqSymbol,
+		ConcatSymbol,
+		LeftparenSymbol,
+		RightparenSymbol,
 	}
 
 	var options []string
@@ -233,17 +239,34 @@ func lexSymbol(source string, ic cursor) (*Token, cursor, bool) {
 
 func lexKeyword(source string, ic cursor) (*Token, cursor, bool) {
 	cur := ic
+
 	keywords := []Keyword{
 		SelectKeyword,
 		InsertKeyword,
 		ValuesKeyword,
 		TableKeyword,
 		CreateKeyword,
+		DropKeyword,
 		WhereKeyword,
 		FromKeyword,
 		IntoKeyword,
 		TextKeyword,
+		BoolKeyword,
+		IntKeyword,
+		AndKeyword,
+		OrKeyword,
+		AsKeyword,
+		TrueKeyword,
+		FalseKeyword,
+		UniqueKeyword,
+		IndexKeyword,
+		OnKeyword,
+		PrimarykeyKeyword,
+		NullKeyword,
+		LimitKeyword,
+		OffsetKeyword,
 	}
+
 	var options []string
 
 	for _, k := range keywords {
